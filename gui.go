@@ -37,7 +37,7 @@ func Run(Window *app.Window) error {
 	for {
 		switch e := Window.Event().(type) {
 		case app.DestroyEvent:
-			return e.Err
+			return nil
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)
 

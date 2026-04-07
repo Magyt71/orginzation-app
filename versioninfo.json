@@ -1,0 +1,13 @@
+{
+    "IconPath":"image/organization-chart.ico",
+    "FixedFileInfo":{
+        "FileVersion":{
+            "Major":1, "Minor":0, "Patch":0, "Build":0
+        }
+    },
+    "StringFileInfo":{
+        "ProductName":"Organization App",
+        "FileDescription": "File Organizer",
+        "LegalCopyright": "2025"
+    }
+}
