@@ -17,8 +17,8 @@ var (
 
 func main() {
 
-	go systray.Run(OnReady, OnExit)
-
+	systray.Run(OnReady, OnExit)
+	Org.Config.Notifcation = false
 	app.Main()
 }
 
@@ -46,9 +46,9 @@ func OnReady() {
 	systray.AddSeparator()
 
 	mOpen := systray.AddMenuItem("Program settings", "Open Gio interface")
+	mSetting := systray.AddMenuItem("Open Setting", "Ope The App Setting ")
 	mQuit := systray.AddMenuItem("Complete shutdown,", "Stop program and monitor")
 
-	Org.Start()
 
 	go func() {
 		for {
@@ -59,6 +59,7 @@ func OnReady() {
 				case showGuiCh <- struct{}{}:
 				default:
 				}
+			case <-mSetting.ClickedCh:
 
 			case <-mQuit.ClickedCh:
 				Org.log("the app is closing")
