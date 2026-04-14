@@ -45,8 +45,7 @@ func OnReady() {
 
 	systray.AddSeparator()
 
-	mOpen := systray.AddMenuItem("Program settings", "Open Gio interface")
-	mSetting := systray.AddMenuItem("Open Setting", "Ope The App Setting ")
+	mOpen := systray.AddMenuItem("Open The App", "Open Gio interface")
 	mQuit := systray.AddMenuItem("Complete shutdown,", "Stop program and monitor")
 
 	go func() {
@@ -58,8 +57,6 @@ func OnReady() {
 				case showGuiCh <- struct{}{}:
 				default:
 				}
-			case <-mSetting.ClickedCh:
-				Org.log("The Setting Will Open Soon...")
 			case <-mQuit.ClickedCh:
 				Org.log("The App Is Closing...")
 				systray.Quit()

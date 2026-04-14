@@ -23,15 +23,20 @@ import (
 )
 
 var (
-	deleteButtons []widget.Clickable
-	StartStopBtn  widget.Clickable
-	AddFolderBtn  widget.Clickable
-	SettingsBtn   widget.Clickable
-	moveList      widget.List
-	pathList      widget.List
-	appImageOp    paint.ImageOp
-	imageLoaded   bool
-	showSettings  bool
+	deleteButtons      []widget.Clickable
+	StartStopBtn       widget.Clickable
+	AddFolderBtn       widget.Clickable
+	SettingsBtn        widget.Clickable
+	ChangeFileTypesBtn widget.Clickable
+	NotificationsBtn   widget.Clickable
+	BackBtn            widget.Clickable
+	dialogOverlay      widget.Clickable
+	moveList           widget.List
+	pathList           widget.List
+	appImageOp         paint.ImageOp
+	imageLoaded        bool
+	showSettings       bool
+	isDialogOpen       bool
 )
 
 func init() {
@@ -87,21 +92,24 @@ func Run(Window *app.Window) error {
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)
 
-			// Full-window background
 			fillShape(gtx.Ops, BackgroundColor, gtx.Constraints.Max)
 
-			// Button logic
 			handleEvents(gtx, Window)
 
-			// Root layout
 			drawRoot(gtx, theme)
+
+			// Modal overlay (prevents clicks & dims UI)
+			if isDialogOpen {
+				dialogOverlay.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					paint.FillShape(gtx.Ops, color.NRGBA{R: 0, G: 0, B: 0, A: 200}, clip.Rect{Max: gtx.Constraints.Max}.Op())
+					return layout.Dimensions{Size: gtx.Constraints.Max}
+				})
+			}
 
 			e.Frame(gtx.Ops)
 		}
 	}
 }
-
-// ── handleEvents ─────────────────────────────────────────────────────────────
 
 func handleEvents(gtx layout.Context, w *app.Window) {
 	if StartStopBtn.Clicked(gtx) {
@@ -112,53 +120,50 @@ func handleEvents(gtx layout.Context, w *app.Window) {
 		}
 	}
 	if AddFolderBtn.Clicked(gtx) {
-		go func() {
-			runtime.LockOSThread()
-			defer runtime.UnlockOSThread()
-			d := dialog.Directory().Title("Select Folder to Watch")
-			Dir, err := d.Browse()
-			if err == nil && Dir != "" {
-				Org.AddPath(Dir)
+		if !isDialogOpen {
+			isDialogOpen = true
+			go func() {
+				runtime.LockOSThread()
+				defer runtime.UnlockOSThread()
+
+				d := dialog.Directory().Title("Select Folder to Watch")
+				Dir, err := d.Browse()
+				if err == nil && Dir != "" {
+					Org.AddPath(Dir)
+				}
+				
+				isDialogOpen = false
 				w.Invalidate()
-			}
-		}()
+			}()
+		}
 	}
 	if SettingsBtn.Clicked(gtx) {
 		showSettings = !showSettings
 	}
+	if ChangeFileTypesBtn.Clicked(gtx) {
+		Org.log("Change File Types clicked — editor coming soon...")
+	}
+	if BackBtn.Clicked(gtx) {
+		showSettings = false
+	}
+	if NotificationsBtn.Clicked(gtx){
+		Org.Config.Notifcation = false
+	}
 }
-
-// ── Root Layout ──────────────────────────────────────────────────────────────
-//
-//	┌────────────────────┬──────────────────────┐
-//	│                    │ Organization         │
-//	│     Image          │ Moderator            │
-//	│     Area           │  [Start]             │
-//	│                    │  [Add Folder]        │
-//	│                    │  [Settings]          │
-//	│                    ├──────────────────────┤
-//	│                    │   Last move files    │
-//	├────────────────────┤                      │
-//	│ Status bar         │                      │
-//	└────────────────────┴──────────────────────┘
 
 func drawRoot(gtx layout.Context, theme *material.Theme) layout.Dimensions {
 	return layout.UniformInset(unit.Dp(12)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		// Outer bordered container
 		return drawBorderedPanel(gtx, BorderColor, unit.Dp(2), unit.Dp(10), BackgroundColor,
 			func(gtx layout.Context) layout.Dimensions {
 				return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 
-						// ── Left column: Image + Status bar (45%)
 						layout.Flexed(0.45, func(gtx layout.Context) layout.Dimensions {
 							return drawLeftColumn(gtx, theme)
 						}),
 
-						// Spacer between columns
 						layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 
-						// ── Right column: Title + Buttons + Last moves (55%)
 						layout.Flexed(0.55, func(gtx layout.Context) layout.Dimensions {
 							return drawRightColumn(gtx, theme)
 						}),
@@ -169,12 +174,9 @@ func drawRoot(gtx layout.Context, theme *material.Theme) layout.Dimensions {
 	})
 }
 
-// ── Left Column ──────────────────────────────────────────────────────────────
-
 func drawLeftColumn(gtx layout.Context, theme *material.Theme) layout.Dimensions {
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 
-		// Image area (takes remaining space)
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return drawBorderedPanel(gtx, BorderColor, unit.Dp(2), unit.Dp(8), SurfaceColor,
 				func(gtx layout.Context) layout.Dimensions {
@@ -185,7 +187,6 @@ func drawLeftColumn(gtx layout.Context, theme *material.Theme) layout.Dimensions
 
 		layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
 
-		// Status bar at bottom
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return drawBorderedPanel(gtx, BorderColor, unit.Dp(2), unit.Dp(6), InputBgColor,
 				func(gtx layout.Context) layout.Dimensions {
@@ -196,74 +197,76 @@ func drawLeftColumn(gtx layout.Context, theme *material.Theme) layout.Dimensions
 	)
 }
 
-// ── Right Column ─────────────────────────────────────────────────────────────
-
 func drawRightColumn(gtx layout.Context, theme *material.Theme) layout.Dimensions {
+	if showSettings {
+		return drawSettingsFullColumn(gtx, theme)
+	}
+	return drawMainColumn(gtx, theme)
+}
+
+func drawMainColumn(gtx layout.Context, theme *material.Theme) layout.Dimensions {
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 
-		// Top section: Title + Buttons
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 
-				// Title
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Top: unit.Dp(16), Bottom: unit.Dp(20)}.Layout(gtx,
-						func(gtx layout.Context) layout.Dimensions {
-							lbl := material.H5(theme, "Organization Moderator")
-							lbl.Color = PrimaryColor
-							lbl.Alignment = text.Middle
-							return lbl.Layout(gtx)
-						})
-				}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Top: unit.Dp(16), Bottom: unit.Dp(20)}.Layout(gtx,
+							func(gtx layout.Context) layout.Dimensions {
+								lbl := material.H5(theme, "Organization Moderator")
+								lbl.Color = PrimaryColor
+								lbl.Alignment = text.Middle
+								return lbl.Layout(gtx)
+							})
+					}),
 
-				// Start / Stop button
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					btnText := "▶  Start"
-					bgColor := SuccessColor
-					if Org.Config.IsRunning {
-						btnText = "■  Stop"
-						bgColor = ErrorColor
-					}
-					return layout.Inset{Left: unit.Dp(20), Right: unit.Dp(20)}.Layout(gtx,
-						func(gtx layout.Context) layout.Dimensions {
-							return styledButton(gtx, theme, &StartStopBtn, btnText, bgColor)
-						})
-				}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						btnText := "▶  Start"
+						bgColor := SuccessColor
+						if Org.Config.IsRunning {
+							btnText = "■  Stop"
+							bgColor = ErrorColor
+						}
+						return layout.Inset{Left: unit.Dp(20), Right: unit.Dp(20)}.Layout(gtx,
+							func(gtx layout.Context) layout.Dimensions {
+								btnWidth := gtx.Dp(unit.Dp(160))
+								gtx.Constraints.Min.X = btnWidth
+								gtx.Constraints.Max.X = btnWidth
+								return styledButton(gtx, theme, &StartStopBtn, btnText, bgColor)
+							})
+					}),
 
-				layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
+					layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
 
-				// Add Folder button
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Left: unit.Dp(20), Right: unit.Dp(20)}.Layout(gtx,
-						func(gtx layout.Context) layout.Dimensions {
-							return styledButton(gtx, theme, &AddFolderBtn, "＋  Add Folder", ButtonColor)
-						})
-				}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Left: unit.Dp(20), Right: unit.Dp(20)}.Layout(gtx,
+							func(gtx layout.Context) layout.Dimensions {
+								btnWidth := gtx.Dp(unit.Dp(160))
+								gtx.Constraints.Min.X = btnWidth
+								gtx.Constraints.Max.X = btnWidth
+								return styledButton(gtx, theme, &AddFolderBtn, "＋ Add Folder", ButtonColor)
+							})
+					}),
 
-				layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
+					layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
 
-				// Settings button
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					settingsBg := SettingsBtnColor
-					if showSettings {
-						settingsBg = PrimaryColor
-					}
-					return layout.Inset{Left: unit.Dp(20), Right: unit.Dp(20), Bottom: unit.Dp(16)}.Layout(gtx,
-						func(gtx layout.Context) layout.Dimensions {
-							return styledButton(gtx, theme, &SettingsBtn, "⚙  Settings", settingsBg)
-						})
-				}),
-			)
-		})
-	}),
-		// ── Bottom section: Last move files or Settings panel
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Left: unit.Dp(20), Right: unit.Dp(20), Bottom: unit.Dp(16)}.Layout(gtx,
+							func(gtx layout.Context) layout.Dimensions {
+								btnWidth := gtx.Dp(unit.Dp(160))
+								gtx.Constraints.Min.X = btnWidth
+								gtx.Constraints.Max.X = btnWidth
+								return styledButton(gtx, theme, &SettingsBtn, "⚙  Settings", SettingsBtnColor)
+							})
+					}),
+				)
+			})
+		}),
+
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return drawBorderedPanel(gtx, BorderColor, unit.Dp(2), unit.Dp(8), SurfaceColor,
 				func(gtx layout.Context) layout.Dimensions {
-					if showSettings {
-						return drawSettingsPanel(gtx, theme)
-					}
 					return drawLastMoveFiles(gtx, theme)
 				},
 			)
@@ -271,7 +274,84 @@ func drawRightColumn(gtx layout.Context, theme *material.Theme) layout.Dimension
 	)
 }
 
-// ── Image Area ───────────────────────────────────────────────────────────────
+func drawSettingsFullColumn(gtx layout.Context, theme *material.Theme) layout.Dimensions {
+	btnHeight := gtx.Dp(unit.Dp(48))
+
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: unit.Dp(16), Bottom: unit.Dp(20)}.Layout(gtx,
+				func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min.X = gtx.Constraints.Max.X
+					lbl := material.H5(theme, "⚙  Settings")
+					lbl.Color = PrimaryColor
+					lbl.Alignment = text.Middle
+					return lbl.Layout(gtx)
+				})
+		}),
+
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Vertical, Spacing: layout.SpaceEvenly}.Layout(gtx,
+
+					// Row 1: Add Folder | File Types
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Flex{Axis: layout.Horizontal, Spacing: layout.SpaceEvenly}.Layout(gtx,
+							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+								return layout.Inset{Right: unit.Dp(5)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									gtx.Constraints.Min.X = gtx.Constraints.Max.X
+									gtx.Constraints.Min.Y = btnHeight
+									gtx.Constraints.Max.Y = btnHeight
+									return styledButton(gtx, theme, &AddFolderBtn, "＋ Add Folder", ButtonColor)
+								})
+							}),
+							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+								return layout.Inset{Left: unit.Dp(5)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									gtx.Constraints.Min.X = gtx.Constraints.Max.X
+									gtx.Constraints.Min.Y = btnHeight
+									gtx.Constraints.Max.Y = btnHeight
+									return styledButton(gtx, theme, &ChangeFileTypesBtn, "✎ File Types", SettingsBtnColor)
+								})
+							}),
+						)
+					}),
+
+					layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
+
+					// Row 2: Back | Notifications
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Flex{Axis: layout.Horizontal, Spacing: layout.SpaceEvenly}.Layout(gtx,
+							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+								return layout.Inset{Right: unit.Dp(5)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									gtx.Constraints.Min.X = gtx.Constraints.Max.X
+									gtx.Constraints.Min.Y = btnHeight
+									gtx.Constraints.Max.Y = btnHeight
+									return styledButton(gtx, theme, &BackBtn, "←  Back", ErrorColor)
+								})
+							}),
+							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+								return layout.Inset{Left: unit.Dp(5)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									gtx.Constraints.Min.X = gtx.Constraints.Max.X
+									gtx.Constraints.Min.Y = btnHeight
+									gtx.Constraints.Max.Y = btnHeight
+									return styledButton(gtx, theme, &NotificationsBtn, "🔔 Notifications", SettingsBtnColor)
+								})
+							}),
+						)
+					}),
+				)
+			})
+		}),
+
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			return drawBorderedPanel(gtx, BorderColor, unit.Dp(2), unit.Dp(8), SurfaceColor,
+				func(gtx layout.Context) layout.Dimensions {
+					return drawSettingsPanel(gtx, theme)
+				},
+			)
+		}),
+	)
+}
 
 func drawImageArea(gtx layout.Context, theme *material.Theme) layout.Dimensions {
 	size := gtx.Constraints.Max
@@ -279,7 +359,6 @@ func drawImageArea(gtx layout.Context, theme *material.Theme) layout.Dimensions 
 	if imageLoaded {
 		imgSz := appImageOp.Size()
 
-		// Calculate scale to fit while maintaining aspect ratio
 		scaleX := float32(size.X) / float32(imgSz.X)
 		scaleY := float32(size.Y) / float32(imgSz.Y)
 		scale := scaleX
@@ -287,16 +366,13 @@ func drawImageArea(gtx layout.Context, theme *material.Theme) layout.Dimensions 
 			scale = scaleY
 		}
 
-		// Calculate centered position
 		scaledW := int(float32(imgSz.X) * scale)
 		scaledH := int(float32(imgSz.Y) * scale)
 		offsetX := (size.X - scaledW) / 2
 		offsetY := (size.Y - scaledH) / 2
 
-		// Clip to container bounds
 		clipStack := clip.Rect{Max: size}.Push(gtx.Ops)
 
-		// Offset to center, then scale
 		offStack := op.Offset(image.Pt(offsetX, offsetY)).Push(gtx.Ops)
 		aff := f32.Affine2D{}.Scale(f32.Pt(0, 0), f32.Pt(scale, scale))
 		affStack := op.Affine(aff).Push(gtx.Ops)
@@ -308,7 +384,6 @@ func drawImageArea(gtx layout.Context, theme *material.Theme) layout.Dimensions 
 		offStack.Pop()
 		clipStack.Pop()
 	} else {
-		// Placeholder
 		layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			lbl := material.H3(theme, "Image")
 			lbl.Color = SecondaryTextColor
@@ -320,8 +395,6 @@ func drawImageArea(gtx layout.Context, theme *material.Theme) layout.Dimensions 
 	return layout.Dimensions{Size: size}
 }
 
-// ── Last Move Files Panel ────────────────────────────────────────────────────
-
 func drawLastMoveFiles(gtx layout.Context, theme *material.Theme) layout.Dimensions {
 	moveList.Axis = layout.Vertical
 	moves := Org.RecentMoves
@@ -329,7 +402,6 @@ func drawLastMoveFiles(gtx layout.Context, theme *material.Theme) layout.Dimensi
 	return layout.UniformInset(unit.Dp(12)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 
-			// Section header
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Bottom: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
@@ -350,19 +422,18 @@ func drawLastMoveFiles(gtx layout.Context, theme *material.Theme) layout.Dimensi
 				})
 			}),
 
-			// Separator
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Bottom: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return drawHLine(gtx, BorderColor)
 				})
 			}),
 
-			// List or empty state
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				if len(moves) == 0 {
 					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								gtx.Constraints.Min.X = gtx.Constraints.Max.X
 								lbl := material.Body1(theme, "◌")
 								lbl.Color = color.NRGBA{R: 40, G: 60, B: 70, A: 255}
 								lbl.TextSize = unit.Sp(36)
@@ -371,6 +442,7 @@ func drawLastMoveFiles(gtx layout.Context, theme *material.Theme) layout.Dimensi
 							}),
 							layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								gtx.Constraints.Min.X = gtx.Constraints.Max.X
 								lbl := material.Body2(theme, "Waiting for file events…")
 								lbl.Color = SecondaryTextColor
 								lbl.Alignment = text.Middle
@@ -390,8 +462,6 @@ func drawLastMoveFiles(gtx layout.Context, theme *material.Theme) layout.Dimensi
 	})
 }
 
-// ── Settings Panel (Watched Directories) ─────────────────────────────────────
-
 func drawSettingsPanel(gtx layout.Context, theme *material.Theme) layout.Dimensions {
 	pathList.Axis = layout.Vertical
 	paths := Org.Config.WatchPaths
@@ -403,7 +473,6 @@ func drawSettingsPanel(gtx layout.Context, theme *material.Theme) layout.Dimensi
 	return layout.UniformInset(unit.Dp(12)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 
-			// Section header
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Bottom: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
@@ -420,14 +489,12 @@ func drawSettingsPanel(gtx layout.Context, theme *material.Theme) layout.Dimensi
 				})
 			}),
 
-			// Separator
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Bottom: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return drawHLine(gtx, BorderColor)
 				})
 			}),
 
-			// Path list
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				if len(paths) == 0 {
 					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -441,7 +508,6 @@ func drawSettingsPanel(gtx layout.Context, theme *material.Theme) layout.Dimensi
 				return material.List(theme, &pathList).Layout(gtx, len(paths), func(gtx layout.Context, i int) layout.Dimensions {
 					return layout.Inset{Bottom: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 
-						// Delete logic
 						if deleteButtons[i].Clicked(gtx) {
 							Org.Config.mu.Lock()
 							Org.Config.WatchPaths = append(Org.Config.WatchPaths[:i], Org.Config.WatchPaths[i+1:]...)
@@ -456,11 +522,8 @@ func drawSettingsPanel(gtx layout.Context, theme *material.Theme) layout.Dimensi
 	})
 }
 
-// ── Activity Card ────────────────────────────────────────────────────────────
-
 func drawActivityCard(gtx layout.Context, theme *material.Theme, move MoveRecord) layout.Dimensions {
 	return layout.Stack{Alignment: layout.W}.Layout(gtx,
-		// Card background
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			size := image.Pt(gtx.Constraints.Min.X, gtx.Constraints.Min.Y)
 			rr := gtx.Dp(unit.Dp(6))
@@ -471,7 +534,6 @@ func drawActivityCard(gtx layout.Context, theme *material.Theme, move MoveRecord
 			paint.ColorOp{Color: InputBgColor}.Add(gtx.Ops)
 			paint.PaintOp{}.Add(gtx.Ops)
 
-			// Top accent strip
 			stripH := gtx.Dp(unit.Dp(2))
 			stripRect := image.Rectangle{Max: image.Pt(size.X, stripH)}
 			defer clip.RRect{Rect: stripRect, NE: rr, NW: rr}.Push(gtx.Ops).Pop()
@@ -480,7 +542,6 @@ func drawActivityCard(gtx layout.Context, theme *material.Theme, move MoveRecord
 			return layout.Dimensions{Size: size}
 		}),
 
-		// Content
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{
 				Top: unit.Dp(8), Bottom: unit.Dp(8),
@@ -489,7 +550,6 @@ func drawActivityCard(gtx layout.Context, theme *material.Theme, move MoveRecord
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-							// Timestamp
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								t := material.Caption(theme, move.Time)
 								t.Color = PrimaryColor
@@ -501,7 +561,6 @@ func drawActivityCard(gtx layout.Context, theme *material.Theme, move MoveRecord
 										return drawDot(gtx, DividerColor, 4)
 									})
 							}),
-							// File name
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 								txt := fmt.Sprintf("%s → %s", move.FileName, move.Dest)
 								l := material.Caption(theme, txt)
@@ -516,11 +575,8 @@ func drawActivityCard(gtx layout.Context, theme *material.Theme, move MoveRecord
 	)
 }
 
-// ── Path Card ────────────────────────────────────────────────────────────────
-
 func drawPathCard(gtx layout.Context, theme *material.Theme, path string, delBtn *widget.Clickable) layout.Dimensions {
 	return layout.Stack{Alignment: layout.Center}.Layout(gtx,
-		// Card background
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			size := image.Pt(gtx.Constraints.Min.X, gtx.Constraints.Min.Y)
 			rr := gtx.Dp(unit.Dp(6))
@@ -531,7 +587,6 @@ func drawPathCard(gtx layout.Context, theme *material.Theme, path string, delBtn
 			paint.ColorOp{Color: InputBgColor}.Add(gtx.Ops)
 			paint.PaintOp{}.Add(gtx.Ops)
 
-			// Left cyan strip
 			strip := image.Rectangle{Max: image.Pt(gtx.Dp(unit.Dp(3)), size.Y)}
 			defer clip.RRect{Rect: strip, NW: rr, SW: rr}.Push(gtx.Ops).Pop()
 			paint.ColorOp{Color: PrimaryColor}.Add(gtx.Ops)
@@ -539,7 +594,6 @@ func drawPathCard(gtx layout.Context, theme *material.Theme, path string, delBtn
 			return layout.Dimensions{Size: size}
 		}),
 
-		// Content
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{
 				Top: unit.Dp(8), Bottom: unit.Dp(8),
@@ -570,11 +624,8 @@ func drawPathCard(gtx layout.Context, theme *material.Theme, path string, delBtn
 	)
 }
 
-// ── Styled button with left accent bar ───────────────────────────────────────
-
 func styledButton(gtx layout.Context, theme *material.Theme, btn *widget.Clickable, label string, bg color.NRGBA) layout.Dimensions {
 	return layout.Stack{}.Layout(gtx,
-		// Background
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			rr := gtx.Dp(unit.Dp(7))
 			rect := image.Rectangle{Max: gtx.Constraints.Min}
@@ -588,7 +639,6 @@ func styledButton(gtx layout.Context, theme *material.Theme, btn *widget.Clickab
 			return layout.Dimensions{Size: gtx.Constraints.Min}
 		}),
 
-		// Left accent bar
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			bw := gtx.Dp(unit.Dp(4))
 			rr := gtx.Dp(unit.Dp(7))
@@ -599,8 +649,8 @@ func styledButton(gtx layout.Context, theme *material.Theme, btn *widget.Clickab
 			return layout.Dimensions{Size: gtx.Constraints.Min}
 		}),
 
-		// Label
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			return btn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{
 					Top: unit.Dp(11), Bottom: unit.Dp(11),
@@ -616,8 +666,6 @@ func styledButton(gtx layout.Context, theme *material.Theme, btn *widget.Clickab
 		}),
 	)
 }
-
-// ── Status Bar ───────────────────────────────────────────────────────────────
 
 func drawStatusBar(gtx layout.Context, theme *material.Theme) layout.Dimensions {
 	status := "Idle"
@@ -641,20 +689,16 @@ func drawStatusBar(gtx layout.Context, theme *material.Theme) layout.Dimensions 
 				return lbl.Layout(gtx)
 			}),
 		)
-		// 🔴 الجوهر: نُجبر شريط الحالة على ملء المساحة الأفقية بالكامل (نفس تكتيك الصورة)
 		dims.Size.X = gtx.Constraints.Max.X
 		return dims
 	})
 }
-
-// ── Bordered Panel Helper ────────────────────────────────────────────────────
 
 func drawBorderedPanel(gtx layout.Context, borderColor color.NRGBA, borderWidth unit.Dp, radius unit.Dp, fillColor color.NRGBA, w layout.Widget) layout.Dimensions {
 	bw := gtx.Dp(borderWidth)
 	rr := gtx.Dp(radius)
 
 	return layout.Stack{}.Layout(gtx,
-		// Border background
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			size := gtx.Constraints.Min
 			outerRect := image.Rectangle{Max: size}
@@ -664,7 +708,6 @@ func drawBorderedPanel(gtx layout.Context, borderColor color.NRGBA, borderWidth 
 			return layout.Dimensions{Size: size}
 		}),
 
-		// Inner fill
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			size := gtx.Constraints.Min
 			innerRR := rr - bw
@@ -681,14 +724,11 @@ func drawBorderedPanel(gtx layout.Context, borderColor color.NRGBA, borderWidth 
 			return layout.Dimensions{Size: size}
 		}),
 
-		// Content (inset by border width)
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(borderWidth).Layout(gtx, w)
 		}),
 	)
 }
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
 
 func fillShape(ops *op.Ops, c color.NRGBA, size image.Point) {
 	defer clip.Rect{Max: size}.Push(ops).Pop()
@@ -714,7 +754,6 @@ func drawDot(gtx layout.Context, c color.NRGBA, dp unit.Dp) layout.Dimensions {
 	return layout.Dimensions{Size: image.Pt(sz+4, sz)}
 }
 
-// addAlpha returns the same color with a new alpha (used for hover effect)
 func addAlpha(c color.NRGBA, a uint8) color.NRGBA {
 	return color.NRGBA{R: c.R, G: c.G, B: c.B, A: a}
 }
