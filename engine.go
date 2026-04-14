@@ -23,7 +23,7 @@ type AppConfig struct {
 	Rmu         sync.RWMutex
 }
 
-type MoveLog struct {
+type MoveRecord struct {
 	FileName string
 	Dest     string
 	Time     string
@@ -34,7 +34,7 @@ type Organizer struct {
 	Watcher         *fsnotify.Watcher
 	PrograssingFile sync.Map
 	logCallback     func(string)
-	RecentMoves     []MoveLog
+	RecentMoves     []MoveRecord
 }
 
 func NewOrganizer() *Organizer {
@@ -55,6 +55,24 @@ func NewOrganizer() *Organizer {
 				".pdf": "Documents", ".docx": "Documents", ".txt": "Documents", ".log": "Documents"},
 		},
 	}
+}
+
+func (O *Organizer) AddToMap(ext string, folderName string) {
+
+	O.Config.Rmu.Lock()
+	defer O.Config.Rmu.Unlock()
+
+	if !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
+	O.Config.TargetMap[strings.ToLower(ext)] = folderName
+}
+
+func (O *Organizer) RemoveFromMap(ext string) {
+	if !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
+	delete(O.Config.TargetMap, strings.ToLower(ext))
 }
 
 func (O *Organizer) AddPath(Path string) {
@@ -170,7 +188,7 @@ func (O *Organizer) HandleFileEvent(FilePath string) {
 func (O *Organizer) ProcessMove(FilePath string, TargetFolder string) {
 	FileName := filepath.Base(FilePath)
 	CurrentDir := filepath.Dir(FilePath)
-	
+
 	// محاولة فتح الملف للتأكد أن النظام انتهى من كتابته (للملفات الكبيرة)
 	for i := 0; i < 5; i++ {
 		file, err := os.OpenFile(FilePath, os.O_RDWR, 0644)
@@ -192,15 +210,15 @@ func (O *Organizer) ProcessMove(FilePath string, TargetFolder string) {
 	}
 
 	O.log(fmt.Sprintf("Moved: %s → %s", FileName, TargetFolder))
-	
+
 	if O.Config.Notifcation {
 		beeep.Notify("File Organizer", "Moved: "+FileName+" to "+TargetFolder, "")
 	}
 
 	// تحديث قائمة السجلات بشكل آمن
 	O.Config.mu.Lock()
-	newLog := MoveLog{FileName: FileName, Dest: TargetFolder, Time: time.Now().Format("15:04")}
-	O.RecentMoves = append([]MoveLog{newLog}, O.RecentMoves...)
+	newLog := MoveRecord{FileName: FileName, Dest: TargetFolder, Time: time.Now().Format("15:04")}
+	O.RecentMoves = append([]MoveRecord{newLog}, O.RecentMoves...)
 	if len(O.RecentMoves) > 5 {
 		O.RecentMoves = O.RecentMoves[:5]
 	}
